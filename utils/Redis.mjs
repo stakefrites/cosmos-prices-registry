@@ -5,16 +5,16 @@ class Cache {
         this.port = port;
     }
     async init() {
-        this.client = createClient(this.port);
+        this.client = createClient({
+            url: process.env.REDIS_URL,
+            password: process.env.REDIS_PWD,
+        }
+        );
         await this.client.connect();
     }
 
-    setPrice(chain, price) { 
-        this.client.setEx(chain, 3600, JSON.stringify(price));
-    }
-
-    async getPrice(chain) { 
-        return this.client.get(chain, (err, data) => {
+    async get(key) { 
+        return this.client.get(key, (err, data) => {
             if (err) throw err;
             if (data !== null) {
                 return data
@@ -22,6 +22,14 @@ class Cache {
                 return false
             }
         })
+    }
+
+    setCache(key, value) { 
+        this.client.setEx(key, 3600, JSON.stringify(value));
+    }
+
+    async getCache(key) { 
+        return this.get(key);
     }
 }
  
