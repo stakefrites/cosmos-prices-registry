@@ -10,10 +10,15 @@
   },
   "dependencies": {
     "@cosmjs/encoding": "^0.28.4",
+    "@cosmjs/math": "^0.28.4",
     "@cosmjs/stargate": "^0.28.4",
     "@cosmjs/tendermint-rpc": "^0.28.4",
+    "@tharsis/address-converter": "^0.1.7",
     "axios": "^0.26.1",
+    "big-integer": "^1.6.51",
+    "evmosjs": "^0.2.5",
     "express": "^4.17.3",
+    "lodash": "^4.17.21",
     "redis": "^4.0.6"
   },
   "devDependencies": {

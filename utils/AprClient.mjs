@@ -40,7 +40,6 @@ class AprClient {
     this.restUrl = directory.restUrl(this.chain.name);
     const client = await this.makeClient();
     this.client = client;
-    console.log(this);
   }
 
   async makeClient() {
@@ -55,10 +54,22 @@ class AprClient {
     );
   }
 
+  validateAddress = (a) => {
+    try {
+      fromBech32(a);
+      return true;
+    } catch (error) {
+      console.log(error.message);
+      return false;
+    }
+  };
+
   async getBalance(address) {
     const liquid = await this.client.bank.allBalances(address);
-    console.log(liquid);
-    return liquid;
+    const liquidAmount = liquid.find(
+      (b) => b.denom == this.tokenInfo.denom
+    ).amount;
+    return liquidAmount / Math.pow(10, this.tokenInfo.decimals);
   }
 
   async getStaked(address) {
@@ -70,9 +81,8 @@ class AprClient {
         : staked.delegationResponses.reduce((acc, item) => {
             return acc + parseInt(item.balance.amount);
           }, stakingAcc);
-    const stakedBalance = (
-      totalTokensStaked / Math.pow(10, this.tokenInfo.decimals)
-    ).toFixed(2);
+    const stakedBalance =
+      totalTokensStaked / Math.pow(10, this.tokenInfo.decimals);
     return stakedBalance;
   }
 
@@ -101,11 +111,16 @@ class AprClient {
     const balances = await this.getBalance(address);
     const rewards = await this.getRewards(address);
     const staked = await this.getStaked(address);
-    return (
-      parseFloat(balances.find((el) => el.denom == this.tokenInfo.denom)) +
-      parseFloat(rewards) +
-      parseFloat(staked)
-    );
+    const total =
+      parseFloat(balances) + parseFloat(rewards) + parseFloat(staked);
+
+    const allBalances = {
+      liquid: parseFloat(balances),
+      staked: parseFloat(staked),
+      rewards: parseFloat(rewards),
+      total,
+    };
+    return allBalances;
   }
 
   async getChainApr() {

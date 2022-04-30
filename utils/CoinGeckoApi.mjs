@@ -1,11 +1,14 @@
 import axios from "axios";
 
 class CoinGeckoApi {
+  constructor() {
+    this.baseUrl = "https://api.coingecko.com/api/";
+    this.version = "v3/";
+  }
   async getPrice(id) {
-    console.log(id);
     try {
       const response = await axios.get(
-        "https://api.coingecko.com/api/v3/simple/price",
+        this.baseUrl + this.version + "simple/price",
         {
           params: {
             ids: id,
@@ -18,6 +21,23 @@ class CoinGeckoApi {
       } else {
         return { [id]: "Error" };
       }
+    } catch (error) {
+      console.log(error.message);
+    }
+  }
+  async get14DaysMarketChartByCurrency(id, currency) {
+    try {
+      const response = await axios.get(
+        this.baseUrl + this.version + id + "/market_chart",
+        {
+          params: {
+            vs_currency: currency,
+            days: 14,
+            interval: "daily",
+          },
+        }
+      );
+      return response.data;
     } catch (error) {
       console.log(error.message);
     }
