@@ -11,33 +11,17 @@ import { Tendermint34Client } from "@cosmjs/tendermint-rpc";
 import { fromBech32 } from "@cosmjs/encoding";
 import CosmosDirectory from "./CosmosDirectory.mjs";
 
-const directory = CosmosDirectory();
-
-const getTokenInfo = (tokenData, data) => {
-  const asset = tokenData.assets[0];
-  const base = asset.denom_units.find((el) => el.denom === asset.base);
-  const token = asset.denom_units.find((el) => el.denom === asset.display);
-  return {
-    denom: data.denom || base.denom,
-    symbol: data.symbol || token.denom,
-    decimals: data.decimals || token.exponent || 6,
-    image:
-      data.image ||
-      (asset.logo_URIs && (asset.logo_URIs.png || asset.logo_URIs.svg)),
-    coinGeckoId: asset.coingecko_id,
-  };
-};
-
 class AprClient {
   constructor(chain) {
     this.chain = chain;
+    this.directory = CosmosDirectory();
   }
 
   async init() {
-    const tokenData = await directory.getTokenData(this.chain.name);
+    const tokenData = await this.directory.getTokenData(this.chain.name);
     this.tokenInfo = getTokenInfo(tokenData, this.chain);
-    this.rpcUrl = directory.rpcUrl(this.chain.name);
-    this.restUrl = directory.restUrl(this.chain.name);
+    this.rpcUrl = this.directory.rpcUrl(this.chain.name);
+    this.restUrl = this.directory.restUrl(this.chain.name);
     const client = await this.makeClient();
     this.client = client;
   }
@@ -53,6 +37,21 @@ class AprClient {
       setupGovExtension
     );
   }
+
+  getTokenInfo = (tokenData, data) => {
+    const asset = tokenData.assets[0];
+    const base = asset.denom_units.find((el) => el.denom === asset.base);
+    const token = asset.denom_units.find((el) => el.denom === asset.display);
+    return {
+      denom: data.denom || base.denom,
+      symbol: data.symbol || token.denom,
+      decimals: data.decimals || token.exponent || 6,
+      image:
+        data.image ||
+        (asset.logo_URIs && (asset.logo_URIs.png || asset.logo_URIs.svg)),
+      coinGeckoId: asset.coingecko_id,
+    };
+  };
 
   validateAddress = (a) => {
     try {
@@ -129,7 +128,7 @@ class AprClient {
     const bondedTokens = pool.pool.bondedTokens;
     const totalSupply = supply.amount;
     if (this.chain.chain_id.startsWith("osmosis")) {
-      const apr = await osmosisApr(totalSupply, bondedTokens);
+      const apr = await this.osmosisApr(totalSupply, bondedTokens);
       return apr;
     } else if (this.chain.chain_id.startsWith("sifchain")) {
       const aprRequest = await axios.get(
@@ -137,6 +136,8 @@ class AprClient {
       );
       const apr = aprRequest.data.rate;
       return apr;
+    } else if (this.chain.chain_id.startsWith("juno")) {
+      return 0;
     } else {
       const req = await this.client.mint.inflation();
       const baseInflation = req.toFloatApproximation();
@@ -148,13 +149,13 @@ class AprClient {
 
   async osmosisApr(totalSupply, bondedTokens) {
     const mintParams = await axios.get(
-      restUrl + "/osmosis/mint/v1beta1/params"
+      this.restUrl + "/osmosis/mint/v1beta1/params"
     );
     const osmosisEpochs = await axios.get(
-      restUrl + "/osmosis/epochs/v1beta1/epochs"
+      this.restUrl + "/osmosis/epochs/v1beta1/epochs"
     );
     const epochProvisions = await axios.get(
-      restUrl + "/osmosis/mint/v1beta1/epoch_provisions"
+      this.restUrl + "/osmosis/mint/v1beta1/epoch_provisions"
     );
     const { params } = mintParams.data;
     const { epochs } = osmosisEpochs.data;
