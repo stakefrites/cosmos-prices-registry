@@ -1,69 +1,21 @@
 import express from "express";
-import CosmosDirectory from "../utils/CosmosDirectory.mjs";
 import CoinGeckoApi from "../utils/CoinGeckoApi.mjs";
 import Cache from "../utils/Redis.mjs";
 import AprClient from "../utils/AprClient.mjs";
-import Account from "../utils/Account.mjs";
+import { Account, Chains } from "../utils/Account.mjs";
+import _ from "lodash";
+import { mapAsync } from "../utils/utils.js";
 
 const router = express.Router();
 
+// create and init redis client
 const client = new Cache();
 await client.init();
-const directory = CosmosDirectory();
+
+// create an instance of coingecko client
 const prices = new CoinGeckoApi();
 
-// Chains
-
-const chainsCache = async (req, res, next) => {
-  const chains = await client.getCache("chains");
-  if (chains) {
-    next();
-  } else {
-    const chains = await directory.getChains();
-    client.setCache("chains", chains);
-    next();
-  }
-};
-
-const fetchChains = async (req, res, next) => {
-  const chainsCache = await client.getCache("chains");
-  if (chainsCache) {
-    res.json(Object.keys(JSON.parse(chainsCache)));
-  } else {
-    const chains = await directory.getChains();
-    const array = Object.keys(chains);
-    client.setCache("chains", array);
-    res.json(chains);
-  }
-};
-
-// Prices
-
-const priceCache = async (req, res, next) => {
-  const { chain } = req.params;
-  const price = await client.getCache(chain);
-  if (price) {
-    res.json(JSON.parse(price));
-  } else {
-    next();
-  }
-};
-
-const fetchPrice = async (req, res) => {
-  const { chain } = req.params;
-  const chains = await client.getCache("chains");
-  const chainData = JSON.parse(chains)[chain];
-  if (chainData && chainData.coingecko_id) {
-    const { coingecko_id } = JSON.parse(chains)[chain];
-
-    const price = await prices.getPrice(coingecko_id);
-    client.setCache(chain, price);
-
-    res.json(price);
-  } else {
-    res.json({ no: "price" });
-  }
-};
+// APR
 
 const aprCache = async (req, res, next) => {
   const { chain } = req.params;
@@ -75,73 +27,176 @@ const aprCache = async (req, res, next) => {
   }
 };
 
-const balancesCache = async (req, res, next) => {
-  const { address } = req.params;
-  const balances = await client.getCache(address);
-  if (balances) {
-    res.json({ balances: JSON.parse(balances) });
-  } else {
-    next();
-  }
-};
-
 const aprHandler = async (req, res) => {
   const { chain } = req.params;
-  const chainsCache = await client.getCache("chains");
-  const chainData = JSON.parse(chainsCache)[chain];
+  const chainsNamesCache = await client.getCache("chains");
+  const chainData = JSON.parse(chainsNamesCache)[chain];
   if (chainData) {
     const aprClient = new AprClient(chainData);
     await aprClient.init();
     const apr = await aprClient.getChainApr();
-    console.log(apr);
-    client.setCache("apr-" + chain, apr);
+    client.setCache("apr-" + chain, apr, 86400);
     res.json({ apr });
   } else {
     res.json({ error: "Chain is not supported" });
   }
 };
 
-const balanceHandler = async (req, res) => {
-  const { chain, address } = req.params;
-  const chainsCache = await client.getCache("chains");
-  const chainData = JSON.parse(chainsCache)[chain];
-  if (chainData) {
-    const aprClient = new AprClient(chainData);
-    await aprClient.init();
-    const isAddressValid = aprClient.validateAddress(address);
-    if (isAddressValid) {
-      const balance = await aprClient.getTotalBalances(address);
-      client.setCache(address, balance);
-      res.json({ balance });
-    } else {
-      res.json({ error: "Address Invalid" });
-    }
+// Prices
+
+const priceCache = async (req, res, next) => {
+  const { id } = req.params;
+  let price = await client.getCache("price-" + id);
+  if (price) {
+    const parsedPrice = JSON.parse(price);
+    price ? res.json(JSON.parse(price)) : next();
   } else {
-    res.json({ error: "Chain is not supported" });
+    next();
   }
 };
 
-const chainsHandler = async (req, res) => {
-  const chains = await directory.getChains();
-  const chainNames = Object.values(chains);
-  res.json(chainNames);
+const fetchPrice = async (req, res) => {
+  const { id } = req.params;
+  if (id) {
+    const price = await prices.getPrice(id);
+    client.setCache("price-" + id, price, 1800);
+
+    res.json(price);
+  } else {
+    res.json({ no: "price" });
+  }
 };
 
-router.post("/balance/:address", async (req, res) => {
+// LP
+
+const lpCache = async (req, res, next) => {
   const { address } = req.params;
-  const body = req.body;
-  res.json({ address });
-});
-/* 
-router.get(
-  "/balance/:chain/:address",
-  balancesCache,
-  chainsCache,
-  balanceHandler
-);
-router.get("/apr/:chain", aprCache, chainsCache, aprHandler);
-router.get("/price", chainsCache, fetchChains);
-router.get("/price/:chain", priceCache, chainsCache, fetchPrice);
-router.get("/chains", chainsHandler); */
+  const lpTokens = await client.getCache("lp-" + address);
+  if (lpTokens) {
+    res.json(JSON.parse(lpTokens));
+  } else {
+    next();
+  }
+};
+
+const lpHandler = async (req, res) => {
+  const { address } = req.params;
+  const { chains } = req.query;
+  const enabled = chains.split(",");
+  const chaines = new Chains(enabled);
+  await chaines.init();
+
+  const theAccount = new Account(address, chaines.chains);
+  const lp = await theAccount.getLp();
+  client.setCache("lp-" + address, lp, 3600);
+  res.json(lp);
+};
+
+// Balances
+
+const balanceCache = async (req, res, next) => {
+  const { address } = req.params;
+  const chains = req.query.chains;
+  const balance = await client.getCache(address + "?chains=" + chains);
+  const parsedBal = JSON.parse(balance);
+  if (parsedBal) {
+    parsedBal.balances ? res.json(parsedBal) : next();
+  } else {
+    next();
+  }
+};
+
+const balanceHandler = async (req, res) => {
+  try {
+    const { address } = req.params;
+    const { chains } = req.query;
+    const enabled = chains.split(",");
+    const chaines = new Chains(enabled);
+    await chaines.init();
+
+    const theAccount = new Account(address, chaines.chains);
+    await theAccount.fetch();
+    const totalResponse = {
+      address,
+      balances: theAccount.total,
+      chains,
+    };
+    client.setCache(address + "?chains=" + chains, totalResponse, 3600);
+    res.json(totalResponse);
+  } catch (error) {
+    console.log(error);
+    res.json({
+      error: true,
+    });
+  }
+};
+
+// CHAINS
+
+const chainsCache = async (req, res, next) => {
+  const { chains } = req.query;
+  const enabled = chains.split(",");
+  const cached = await mapAsync(enabled, async (e) => {
+    let cache = await client.getCache(e);
+    cache = JSON.parse(cache);
+    if (!cache) {
+      return false;
+    } else {
+      return cache;
+    }
+  });
+  cached.includes(false) ? next() : res.json(_.keyBy(cached, "name"));
+};
+
+const chainsHandler = async (req, res) => {
+  const { chains } = req.query;
+  const enabled = chains.split(",");
+  const chaines = new Chains(enabled);
+  await chaines.init();
+  chaines.chains.map((c) => {
+    client.setCache(c.name, c, 86400);
+  });
+  res.json(chaines.chains);
+};
+
+// TOKENS
+
+const tokensCache = async (req, res, next) => {
+  const cache = await client.getCache("tokens");
+  if (cache) {
+    res.json(JSON.parse(cache));
+  } else {
+    next();
+  }
+};
+
+const tokenHandler = async (req, res) => {
+  const chaines = new Chains();
+  await chaines.fetchTokens();
+  client.setCache("tokens", chaines.tokens, 86400);
+  res.json(chaines.tokens);
+};
+
+////
+
+// Attach routes /api
+
+//apr by chainName
+router.get("/apr/:chain", aprCache, aprHandler);
+
+// price by id
+router.get("/price/:id", priceCache, fetchPrice);
+
+// tokens
+router.get("/tokens", tokensCache, tokenHandler);
+
+// chains
+router.get("/chains", chainsCache, chainsHandler);
+
+// balances
+router.get("/balance/:address", balanceCache, balanceHandler);
+
+// lp
+router.get("/lp/:address", lpCache, lpHandler);
 
 export default router;
