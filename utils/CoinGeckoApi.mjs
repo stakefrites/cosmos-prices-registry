@@ -17,9 +17,9 @@ class CoinGeckoApi {
         }
       );
       if (response.status == 200 && response.data[id]) {
-        return response.data[id];
+        return response.data;
       } else {
-        return { [id]: "Error" };
+        return { [id]: false };
       }
     } catch (error) {
       console.log(error.message);
