@@ -20,8 +20,8 @@ class Cache {
     });
   }
 
-  setCache(key, value) {
-    this.client.setEx(key, 3600, JSON.stringify(value));
+  setCache(key, value, ex) {
+    this.client.setEx(key, ex, JSON.stringify(value));
   }
 
   async getCache(key) {
